@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+__pycache__/
+backend/__pycache__/
+*.py[cod]
+
+# Production build outputs
+dist/
+frontend/dist/
+
+# Local environment configuration (keep .env.example tracked)
+.env
+backend/.env
+
+# Temporary files & logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

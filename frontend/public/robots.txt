@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/admin/
+Disallow: /api/inquiries
+
+Sitemap: https://orbivision.com/sitemap.xml

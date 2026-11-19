@@ -1,0 +1,17 @@
+{
+  "name": "orbivision-workspace",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ORBIVISION Creative Technology Agency — Unified Stack",
+  "scripts": {
+    "dev": "concurrently -n \"backend,frontend\" -c \"cyan,magenta\" \"cd backend && python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload\" \"cd frontend && npm run dev\"",
+    "dev:backend": "cd backend && python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload",
+    "dev:frontend": "cd frontend && npm run dev",
+    "lint": "cd frontend && npm run lint",
+    "build": "cd frontend && npm run build",
+    "test": "cd backend && python -m unittest test_api.py"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
