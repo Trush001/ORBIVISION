@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import datetime
+from pathlib import Path
 from datetime import timezone
 from contextlib import contextmanager
 from typing import List, Optional, Dict, Any
@@ -14,7 +15,9 @@ def get_db_cursor():
     Automatically commits on success, rolls back on exception,
     and guarantees connection closing to prevent any leaks.
     """
-    conn = sqlite3.connect(config.DATABASE_PATH, check_same_thread=False)
+    db_file = Path(config.DATABASE_PATH)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_file), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         with conn:

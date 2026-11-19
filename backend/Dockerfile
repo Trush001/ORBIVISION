@@ -13,8 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend source code
 COPY . .
 
-# Run as non-privileged user for security
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# Create data directory for persistent SQLite storage and non-privileged user
+RUN mkdir -p /app/data && useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8000

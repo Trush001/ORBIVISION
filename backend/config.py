@@ -20,10 +20,19 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 # Security & JWT
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not JWT_SECRET_KEY:
-    if ENVIRONMENT == "production":
-        raise RuntimeError("CRITICAL: JWT_SECRET_KEY environment variable is missing in production!")
-    # Secure random ephemeral key for development if not provided
+INSECURE_KEYS = {
+    "your-super-secret-jwt-key-change-this-in-production",
+    "orbivision-dev-secret-key-change-in-production-only",
+    "orbivision-ultra-secure-agency-secret-key-2025",
+}
+
+if ENVIRONMENT == "production":
+    if not JWT_SECRET_KEY or JWT_SECRET_KEY in INSECURE_KEYS or len(JWT_SECRET_KEY) < 32:
+        raise RuntimeError(
+            "CRITICAL SECURITY CONFIGURATION ERROR: A strong, unique JWT_SECRET_KEY of at least 32 characters must be set in production!"
+        )
+elif not JWT_SECRET_KEY:
+    # Ephemeral key for local development only
     JWT_SECRET_KEY = "orbivision-dev-secret-key-change-in-production-only"
 
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")

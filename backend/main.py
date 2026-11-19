@@ -23,11 +23,27 @@ from schemas import (
     AgencyConfigResponse,
 )
 
+import logging
+
+logger = logging.getLogger("orbivision.app")
+
 # Lifespan event handler for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize database schema and verify seed data
     seed_database()
+
+    # Verify notification service readiness
+    if not config.SMTP_ENABLED or not config.SMTP_USER or not config.SMTP_PASSWORD:
+        logger.warning("=====================================================================")
+        logger.warning("⚠️  ORBIVISION NOTIFICATION ENGINE: Live SMTP is NOT configured.")
+        logger.warning("   Inquiries will be safely persisted in SQLite, but email alerts")
+        logger.warning("   will execute in SIMULATION (local logging) mode.")
+        logger.warning("   To enable real email dispatch, set SMTP_ENABLED=true in .env.")
+        logger.warning("=====================================================================")
+    else:
+        logger.info(f"✅ ORBIVISION NOTIFICATION ENGINE: Live SMTP enabled via {config.SMTP_HOST}:{config.SMTP_PORT}")
+
     yield
 
 app = FastAPI(

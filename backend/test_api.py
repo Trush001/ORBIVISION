@@ -106,6 +106,63 @@ class TestOrbivisionBackend(unittest.TestCase):
         self.assertEqual(blocked_res.status_code, 429)
         self.assertIn("Retry-After", blocked_res.headers)
 
+    def test_inquiry_rate_limiting(self):
+        # Limit is 3 inquiries per 10 minutes
+        payload = {
+            "full_name": "Rapid Submitter",
+            "email": "rapid@example.com",
+            "phone": "+91 9123456789",
+            "service_required": "Web Design & Development",
+            "project_description": "First legitimate submission brief with sufficient length."
+        }
+        for _ in range(3):
+            res = self.client.post("/api/inquiries", json=payload)
+            self.assertEqual(res.status_code, 201)
+
+        # 4th submission should trigger rate limit 429
+        blocked = self.client.post("/api/inquiries", json=payload)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn("Retry-After", blocked.headers)
+
+    def test_admin_inquiry_lifecycle(self):
+        # Authenticate admin
+        login_res = self.client.post("/api/admin/login", json={
+            "username_or_email": config.INITIAL_ADMIN_USERNAME,
+            "password": config.INITIAL_ADMIN_PASSWORD
+        })
+        token = login_res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Submit fresh inquiry
+        create_res = self.client.post("/api/inquiries", json={
+            "full_name": "Lifecycle Test User",
+            "email": "lifecycle@example.com",
+            "phone": "+91 9988776655",
+            "service_required": "Full-Stack Web Development",
+            "project_description": "Testing full inquiry lifecycle from creation to status update."
+        })
+        inquiry_id = create_res.json()["inquiry"]["id"]
+
+        # Retrieve inquiries list
+        list_res = self.client.get("/api/inquiries", headers=headers)
+        self.assertEqual(list_res.status_code, 200)
+        inquiries = list_res.json()
+        self.assertTrue(any(i["id"] == inquiry_id for i in inquiries))
+
+        # Update status to in_progress with notes
+        patch_res = self.client.patch(
+            f"/api/inquiries/{inquiry_id}",
+            json={"status": "in_progress", "notes": "Contacted client via WhatsApp"},
+            headers=headers
+        )
+        self.assertEqual(patch_res.status_code, 200)
+        self.assertEqual(patch_res.json()["status"], "in_progress")
+        self.assertEqual(patch_res.json()["notes"], "Contacted client via WhatsApp")
+
+        # Delete inquiry
+        del_res = self.client.delete(f"/api/inquiries/{inquiry_id}", headers=headers)
+        self.assertEqual(del_res.status_code, 200)
+
     def test_bcrypt_hashing_and_verification(self):
         raw_pw = "SuperSecurePassword123!"
         hashed = auth.hash_password(raw_pw)

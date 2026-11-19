@@ -5,8 +5,9 @@ services:
       dockerfile: Dockerfile
     container_name: orbivision-backend
     restart: unless-stopped
+    # Bind to localhost only so backend is not exposed to public external internet
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - ENVIRONMENT=production
       - HOST=0.0.0.0
