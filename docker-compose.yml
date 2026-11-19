@@ -5,18 +5,19 @@ services:
       dockerfile: Dockerfile
     container_name: orbivision-backend
     restart: unless-stopped
-    # Bind to localhost only so backend is not exposed to public external internet
-    ports:
-      - "127.0.0.1:8000:8000"
+    # Isolated on internal network; not bound to host port directly
+    expose:
+      - "8000"
     environment:
       - ENVIRONMENT=production
       - HOST=0.0.0.0
       - PORT=8000
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-orbivision-production-jwt-key-replace-with-env}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - JWT_ALGORITHM=HS256
       - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=1440
-      - ALLOWED_ORIGINS=http://localhost,http://localhost:5173,http://127.0.0.1:5173,https://orbivision.com
+      - ALLOWED_ORIGINS=https://orbivision.com,https://www.orbivision.com,http://localhost:5173,http://127.0.0.1:5173
       - DATABASE_PATH=/app/data/orbivision.db
+      - TRUSTED_PROXIES=127.0.0.1,::1,172.16.0.0/12,10.0.0.0/8
       - SMTP_ENABLED=${SMTP_ENABLED:-false}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
@@ -24,6 +25,9 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-no-reply@orbivision.com}
       - FOUNDER_EMAILS=826458om@gmail.com,trushalmparmar96@gmail.com
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@orbivision.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
     volumes:
       - backend-data:/app/data
     networks:
@@ -37,8 +41,26 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
     depends_on:
       - backend
+    networks:
+      - orbivision-network
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: orbivision-certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    # Automatically checks for certificate renewals every 12 hours
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - frontend
     networks:
       - orbivision-network
 

@@ -6,12 +6,11 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent
 PARENT_DIR = BASE_DIR.parent
 
+# Load .env: loads root workspace .env first, then backend/.env if present
+if (PARENT_DIR / ".env").exists():
+    load_dotenv(PARENT_DIR / ".env", override=True)
 if (BASE_DIR / ".env").exists():
-    load_dotenv(BASE_DIR / ".env")
-elif (PARENT_DIR / ".env").exists():
-    load_dotenv(PARENT_DIR / ".env")
-else:
-    load_dotenv()
+    load_dotenv(BASE_DIR / ".env", override=True)
 
 # Server Settings
 HOST = os.getenv("HOST", "127.0.0.1")
@@ -38,8 +37,14 @@ elif not JWT_SECRET_KEY:
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
-# Database
-DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "orbivision.db"))
+# Database Path Resolution:
+# Supports absolute paths (e.g. Docker volumes) and resolves relative paths
+# strictly against BASE_DIR to ensure deterministic SQLite database binding.
+raw_db_path = os.getenv("DATABASE_PATH", "orbivision.db")
+if os.path.isabs(raw_db_path):
+    DATABASE_PATH = raw_db_path
+else:
+    DATABASE_PATH = str((BASE_DIR / raw_db_path).resolve())
 
 # CORS
 raw_origins = os.getenv(
@@ -61,7 +66,21 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "ORBIVISION Agency")
 raw_founders = os.getenv("FOUNDER_EMAILS", "826458om@gmail.com,trushalmparmar96@gmail.com")
 FOUNDER_EMAILS = [email.strip() for email in raw_founders.split(",") if email.strip()]
 
-# Initial Admin Credentials
-INITIAL_ADMIN_USERNAME = os.getenv("INITIAL_ADMIN_USERNAME", "admin")
-INITIAL_ADMIN_EMAIL = os.getenv("INITIAL_ADMIN_EMAIL", "admin@orbivision.com")
-INITIAL_ADMIN_PASSWORD = os.getenv("INITIAL_ADMIN_PASSWORD", "Orbivision@2025")
+# Trusted Reverse Proxies (comma-separated list of IPs, CIDR blocks, or hostnames)
+# Forwarded client IP headers (X-Forwarded-For, X-Real-IP) are ONLY trusted from these sources.
+raw_trusted_proxies = os.getenv(
+    "TRUSTED_PROXIES",
+    "127.0.0.1,::1,localhost,testclient,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
+)
+TRUSTED_PROXIES = [p.strip() for p in raw_trusted_proxies.split(",") if p.strip()]
+
+# Admin Credentials Configuration
+# Loaded strictly from environment variables; NEVER hardcoded in source code.
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", os.getenv("INITIAL_ADMIN_USERNAME", "admin"))
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", os.getenv("INITIAL_ADMIN_EMAIL", "admin@orbivision.com"))
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", os.getenv("INITIAL_ADMIN_PASSWORD", ""))
+
+# Backward-compatibility aliases for existing imports
+INITIAL_ADMIN_USERNAME = ADMIN_USERNAME
+INITIAL_ADMIN_EMAIL = ADMIN_EMAIL
+INITIAL_ADMIN_PASSWORD = ADMIN_PASSWORD

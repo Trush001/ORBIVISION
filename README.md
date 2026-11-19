@@ -24,12 +24,14 @@ npm run dev
 - **Interactive Swagger Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - **API Health Check:** [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
 
-### Method 2: Docker Compose (Production Ready)
+### Method 2: Docker Compose (Production Ready with HTTPS & Certbot)
 ```bash
 docker compose up --build
 ```
-- Frontend will be served on port `80` via high-performance Nginx Alpine.
-- Backend API runs on port `8000` with persistent SQLite volume storage.
+- **Edge Gateway:** High-performance Nginx Alpine terminating TLS on port `443` with automatic HTTP-to-HTTPS redirect on port `80`.
+- **Backend API:** FastAPI isolated inside the internal Docker bridge network (`orbivision-network`), unreachable directly from public internet.
+- **Certbot Daemon:** Automated Let's Encrypt renewal loop every 12 hours.
+- See [DEPLOYMENT.md](file:///c:/Users/Mahes/Desktop/orbivision/DEPLOYMENT.md) for full DNS, firewall, SSL bootstrapping, and reverse-proxy documentation.
 
 ### Method 3: Windows Shell Scripts
 - Run `run_servers.ps1` in PowerShell, or double-click `run_servers.bat`.

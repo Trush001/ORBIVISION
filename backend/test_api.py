@@ -3,13 +3,23 @@ from fastapi.testclient import TestClient
 import main
 import auth
 import config
-from rate_limiter import limiter
+import db_manager
+import seed_data
+from rate_limiter import limiter, get_client_ip, is_trusted_proxy
 
 class TestOrbivisionBackend(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(main.app)
         # Clear rate limits before tests
         limiter._requests.clear()
+
+    def tearDown(self):
+        # Clean up any test records generated during test execution to preserve db integrity
+        with db_manager.get_db_cursor() as cur:
+            cur.execute(
+                "DELETE FROM inquiries WHERE email IN (?, ?, ?, ?)",
+                ("testclient@example.com", "rapid@example.com", "lifecycle@example.com", "visitor@example.com")
+            )
 
     def test_health_check(self):
         response = self.client.get("/api/health")
@@ -36,78 +46,126 @@ class TestOrbivisionBackend(unittest.TestCase):
             self.assertNotIn("pricing_tier", s)
             self.assertNotIn("price", s)
 
-    def test_inquiry_submission_and_validation(self):
-        # Valid inquiry
+    # -------------------------------------------------------------
+    # 1. Admin Credential Security Tests
+    # -------------------------------------------------------------
+    def test_old_admin_password_rejected(self):
+        """Verify the legacy/default password 'Orbivision@2025' returns 401 Unauthorized."""
+        res = self.client.post("/api/admin/login", json={
+            "username_or_email": "admin",
+            "password": "Orbivision@2025"
+        })
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.json()["detail"], "Incorrect username or password")
+
+    def test_new_admin_password_accepted(self):
+        """Verify the environment-configured admin password authenticates successfully."""
+        self.assertTrue(bool(config.ADMIN_PASSWORD), "ADMIN_PASSWORD must be configured in environment")
+        res = self.client.post("/api/admin/login", json={
+            "username_or_email": config.ADMIN_USERNAME,
+            "password": config.ADMIN_PASSWORD
+        })
+        self.assertEqual(res.status_code, 200)
+        token_data = res.json()
+        self.assertIn("access_token", token_data)
+        self.assertEqual(token_data["token_type"], "bearer")
+        self.assertEqual(token_data["user"]["username"], config.ADMIN_USERNAME)
+
+    def test_seed_database_does_not_reset_existing_admin_password(self):
+        """Ensure application startup / seed_database does NOT reset an existing admin password."""
+        admin_before = db_manager.get_admin_by_username_or_email(config.ADMIN_USERNAME)
+        self.assertIsNotNone(admin_before)
+        hash_before = admin_before["password_hash"]
+
+        # Run seed_database as done during application lifespan startup
+        seed_data.seed_database()
+
+        admin_after = db_manager.get_admin_by_username_or_email(config.ADMIN_USERNAME)
+        self.assertIsNotNone(admin_after)
+        hash_after = admin_after["password_hash"]
+
+        # Password hash must remain identical and untouched
+        self.assertEqual(hash_before, hash_after)
+
+    # -------------------------------------------------------------
+    # 2. Public vs. Protected Inquiry API Tests
+    # -------------------------------------------------------------
+    def test_public_inquiry_submission_no_jwt(self):
+        """Verify public visitors can submit inquiries without any JWT authentication."""
         payload = {
-            "full_name": "Test Client",
-            "email": "testclient@example.com",
-            "phone": "+91 9999999999",
-            "company": "Test Enterprise",
-            "service_required": "AI Automation & AI Integration",
-            "project_budget": "Full Custom Build",
-            "project_description": "We need custom autonomous AI agents for customer workflow automation."
+            "full_name": "Public Visitor",
+            "email": "visitor@example.com",
+            "phone": "+91 9876543210",
+            "company": "Public Brand Co.",
+            "service_required": "UI/UX Design",
+            "project_description": "We need a complete Figma design system for our modern enterprise SaaS portal."
         }
+        # Post with NO headers (no Authorization bearer token)
         response = self.client.post("/api/inquiries", json=payload)
         self.assertEqual(response.status_code, 201)
         res_data = response.json()
         self.assertTrue(res_data["success"])
         self.assertIn("inquiry", res_data)
-        self.assertEqual(res_data["inquiry"]["full_name"], "Test Client")
+        self.assertEqual(res_data["inquiry"]["full_name"], "Public Visitor")
+        self.assertEqual(res_data["inquiry"]["status"], "new")
 
-        # Invalid email format should return 422
-        bad_payload = payload.copy()
-        bad_payload["email"] = "notanemail"
-        bad_res = self.client.post("/api/inquiries", json=bad_payload)
-        self.assertEqual(bad_res.status_code, 422)
+    def test_inquiry_input_validation(self):
+        """Verify inquiry input validation rejects bad email, empty description, etc."""
+        bad_payload = {
+            "full_name": "Invalid Form",
+            "email": "not-a-valid-email-format",
+            "phone": "+91 9999999999",
+            "service_required": "Web Design & Development",
+            "project_description": "Short" # Must be >= 10 chars
+        }
+        res = self.client.post("/api/inquiries", json=bad_payload)
+        self.assertEqual(res.status_code, 422)
 
-    def test_admin_auth_and_protected_routes(self):
-        # Invalid login
-        bad_login = self.client.post("/api/admin/login", json={
-            "username_or_email": "admin",
-            "password": "WrongPassword123!"
-        })
-        self.assertEqual(bad_login.status_code, 401)
+    def test_unauthenticated_inquiry_endpoints_rejected(self):
+        """Verify protected admin inquiry endpoints strictly reject unauthenticated requests."""
+        # 1. GET /api/inquiries without JWT -> 401
+        res_get = self.client.get("/api/inquiries")
+        self.assertEqual(res_get.status_code, 401)
 
-        # Valid login
-        login_res = self.client.post("/api/admin/login", json={
-            "username_or_email": config.INITIAL_ADMIN_USERNAME,
-            "password": config.INITIAL_ADMIN_PASSWORD
-        })
-        self.assertEqual(login_res.status_code, 200)
-        token_data = login_res.json()
-        self.assertIn("access_token", token_data)
-        token = token_data["access_token"]
+        # 2. PATCH /api/inquiries/{id} without JWT -> 401
+        res_patch = self.client.patch("/api/inquiries/1", json={"status": "contacted"})
+        self.assertEqual(res_patch.status_code, 401)
 
-        # Access protected endpoint with token
-        headers = {"Authorization": f"Bearer {token}"}
-        stats_res = self.client.get("/api/admin/stats", headers=headers)
-        self.assertEqual(stats_res.status_code, 200)
-        stats = stats_res.json()
-        self.assertIn("total_inquiries", stats)
+        # 3. DELETE /api/inquiries/{id} without JWT -> 401
+        res_del = self.client.delete("/api/inquiries/1")
+        self.assertEqual(res_del.status_code, 401)
 
-        # Access protected endpoint without token should fail
-        unauth_res = self.client.get("/api/admin/stats")
-        self.assertEqual(unauth_res.status_code, 401)
+        # 4. GET /api/admin/stats without JWT -> 401
+        res_stats = self.client.get("/api/admin/stats")
+        self.assertEqual(res_stats.status_code, 401)
 
+        # 5. Invalid JWT bearer token -> 401
+        invalid_headers = {"Authorization": "Bearer totally-fake-or-tampered-token"}
+        res_fake_jwt = self.client.get("/api/inquiries", headers=invalid_headers)
+        self.assertEqual(res_fake_jwt.status_code, 401)
+
+    # -------------------------------------------------------------
+    # 3. Rate Limiting & Reverse Proxy Security Tests
+    # -------------------------------------------------------------
     def test_rate_limiting_login(self):
-        # Limit is 5 requests per minute
+        """Limit is 5 requests per minute per IP."""
         for _ in range(5):
             res = self.client.post("/api/admin/login", json={
                 "username_or_email": "admin",
-                "password": "WrongPassword"
+                "password": "WrongPasswordAttempt"
             })
-            self.assertIn(res.status_code, (401, 200))
+            self.assertEqual(res.status_code, 401)
 
         # 6th attempt should be blocked with 429
         blocked_res = self.client.post("/api/admin/login", json={
             "username_or_email": "admin",
-            "password": "WrongPassword"
+            "password": "WrongPasswordAttempt"
         })
         self.assertEqual(blocked_res.status_code, 429)
         self.assertIn("Retry-After", blocked_res.headers)
 
     def test_inquiry_rate_limiting(self):
-        # Limit is 3 inquiries per 10 minutes
+        """Limit is 3 inquiries per 10 minutes per IP."""
         payload = {
             "full_name": "Rapid Submitter",
             "email": "rapid@example.com",
@@ -124,11 +182,43 @@ class TestOrbivisionBackend(unittest.TestCase):
         self.assertEqual(blocked.status_code, 429)
         self.assertIn("Retry-After", blocked.headers)
 
+    def test_trusted_proxy_ip_spoofing_defense(self):
+        """Ensure forwarded headers are only trusted if the connection peer is a trusted proxy."""
+        # Test helper functions
+        self.assertTrue(is_trusted_proxy("127.0.0.1"))
+        self.assertTrue(is_trusted_proxy("172.18.0.2"))  # Docker subnet 172.16.0.0/12
+        self.assertFalse(is_trusted_proxy("203.0.113.195"))  # Untrusted public IP
+
+        # Mock requests
+        class MockClient:
+            def __init__(self, host):
+                self.host = host
+
+        class MockRequest:
+            def __init__(self, host, headers):
+                self.client = MockClient(host)
+                self.headers = headers
+
+        # Case 1: Untrusted public client sends fake X-Forwarded-For to spoof another IP
+        untrusted_req = MockRequest("203.0.113.195", {"X-Forwarded-For": "1.2.3.4"})
+        ip = get_client_ip(untrusted_req)
+        # MUST ignore X-Forwarded-For and return the actual socket IP
+        self.assertEqual(ip, "203.0.113.195")
+
+        # Case 2: Trusted reverse proxy sends X-Forwarded-For containing real client
+        trusted_proxy_req = MockRequest("172.18.0.2", {"X-Forwarded-For": "198.51.100.42, 172.18.0.2"})
+        ip_proxy = get_client_ip(trusted_proxy_req)
+        # MUST extract originating client IP
+        self.assertEqual(ip_proxy, "198.51.100.42")
+
+    # -------------------------------------------------------------
+    # 4. Admin Management Lifecycle Tests
+    # -------------------------------------------------------------
     def test_admin_inquiry_lifecycle(self):
-        # Authenticate admin
+        # Authenticate admin with new password
         login_res = self.client.post("/api/admin/login", json={
-            "username_or_email": config.INITIAL_ADMIN_USERNAME,
-            "password": config.INITIAL_ADMIN_PASSWORD
+            "username_or_email": config.ADMIN_USERNAME,
+            "password": config.ADMIN_PASSWORD
         })
         token = login_res.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -143,7 +233,7 @@ class TestOrbivisionBackend(unittest.TestCase):
         })
         inquiry_id = create_res.json()["inquiry"]["id"]
 
-        # Retrieve inquiries list
+        # Retrieve inquiries list as authenticated admin
         list_res = self.client.get("/api/inquiries", headers=headers)
         self.assertEqual(list_res.status_code, 200)
         inquiries = list_res.json()
@@ -164,7 +254,7 @@ class TestOrbivisionBackend(unittest.TestCase):
         self.assertEqual(del_res.status_code, 200)
 
     def test_bcrypt_hashing_and_verification(self):
-        raw_pw = "SuperSecurePassword123!"
+        raw_pw = "SuperSecurePassphrase2025!"
         hashed = auth.hash_password(raw_pw)
         self.assertTrue(hashed.startswith(("$2b$", "$2a$")))
         is_valid, needs_rehash = auth.verify_password(raw_pw, hashed)

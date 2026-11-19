@@ -1,13 +1,22 @@
 import time
+import ipaddress
 from collections import defaultdict
 from threading import Lock
 from typing import Dict, List, Tuple
 from fastapi import Request, HTTPException, status
+import config
 
 class InMemoryRateLimiter:
     """
     Thread-safe in-memory sliding-window rate limiter.
-    Does not require external Redis or binary dependencies.
+    
+    LIMITATION NOTE (Single-Instance vs Multi-Instance):
+    - In-memory state is local to this Python worker process.
+    - If deployed across multiple Uvicorn workers, containers, or servers behind
+      a round-robin load balancer, rate limit quotas are per-instance rather than
+      globally shared.
+    - For distributed/multi-instance deployments, see the Redis migration pattern
+      documented below and in DEPLOYMENT.md.
     """
     def __init__(self):
         self._requests: Dict[str, List[float]] = defaultdict(list)
@@ -48,15 +57,61 @@ class InMemoryRateLimiter:
 # Singleton limiter instance
 limiter = InMemoryRateLimiter()
 
+def is_trusted_proxy(peer_ip: str) -> bool:
+    """
+    Verify whether the immediate network peer is in the configured TRUSTED_PROXIES list.
+    Supports IPv4, IPv6, CIDR blocks, and hostnames/test identifiers.
+    """
+    if not peer_ip or peer_ip == "unknown":
+        return False
+    try:
+        peer_addr = ipaddress.ip_address(peer_ip)
+        for trusted in config.TRUSTED_PROXIES:
+            try:
+                if "/" in trusted:
+                    if peer_addr in ipaddress.ip_network(trusted, strict=False):
+                        return True
+                else:
+                    if peer_addr == ipaddress.ip_address(trusted):
+                        return True
+            except ValueError:
+                if trusted.lower() == peer_ip.lower():
+                    return True
+    except ValueError:
+        # Hostnames or test client names (e.g., 'localhost', 'testclient')
+        return peer_ip.lower() in [t.lower() for t in config.TRUSTED_PROXIES]
+    return False
+
 def get_client_ip(request: Request) -> str:
-    """Extract client IP, taking into account common reverse proxy headers."""
+    """
+    Extract client IP securely.
+    
+    SECURITY MEASURE:
+    Forwarded client IP headers (X-Forwarded-For, X-Real-IP) are ONLY trusted if
+    the immediate connection peer (request.client.host) is a verified trusted reverse
+    proxy (such as internal Nginx or container bridge gateway).
+    
+    Public clients connecting directly cannot bypass rate limits by spoofing
+    arbitrary X-Forwarded-For headers.
+    """
+    peer_ip = request.client.host if request.client else "unknown"
+
+    # If the request did not originate from a trusted reverse proxy, use the direct peer IP
+    if not is_trusted_proxy(peer_ip):
+        return peer_ip
+
+    # Peer is trusted: inspect forwarded headers
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        client_candidate = forwarded.split(",")[0].strip()
+        if client_candidate:
+            return client_candidate
+
     real_ip = request.headers.get("X-Real-IP")
     if real_ip:
         return real_ip.strip()
-    return request.client.host if request.client else "unknown"
+
+    return peer_ip
 
 def rate_limit_login(request: Request):
     """Rate limit admin login: max 5 requests per 60 seconds per IP."""

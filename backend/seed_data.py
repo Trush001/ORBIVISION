@@ -149,20 +149,18 @@ def seed_database():
     db_manager.init_db()
 
     # Check or seed admin
-    admin = db_manager.get_admin_by_username_or_email(config.INITIAL_ADMIN_USERNAME)
+    admin = db_manager.get_admin_by_username_or_email(config.ADMIN_USERNAME)
     if not admin:
-        db_manager.insert_admin({
-            "username": config.INITIAL_ADMIN_USERNAME,
-            "email": config.INITIAL_ADMIN_EMAIL,
-            "password_hash": hash_password(config.INITIAL_ADMIN_PASSWORD),
-            "role": "superadmin"
-        })
+        if config.ADMIN_PASSWORD:
+            db_manager.insert_admin({
+                "username": config.ADMIN_USERNAME,
+                "email": config.ADMIN_EMAIL,
+                "password_hash": hash_password(config.ADMIN_PASSWORD),
+                "role": "superadmin"
+            })
     else:
-        # Check if existing admin needs password migration from legacy SHA256 to bcrypt
-        is_valid, needs_rehash = verify_password(config.INITIAL_ADMIN_PASSWORD, admin["password_hash"])
-        if needs_rehash:
-            new_hash = hash_password(config.INITIAL_ADMIN_PASSWORD)
-            db_manager.update_admin_password_hash(admin["id"], new_hash)
+        # Existing admin already present; NEVER reset or overwrite an existing admin password on startup
+        pass
 
     # Check or seed services
     services = db_manager.get_services()
