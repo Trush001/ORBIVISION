@@ -261,5 +261,78 @@ class TestOrbivisionBackend(unittest.TestCase):
         self.assertTrue(is_valid)
         self.assertFalse(needs_rehash)
 
+    # -------------------------------------------------------------
+    # 5. Render Compatibility & CORS Verification Tests
+    # -------------------------------------------------------------
+    def test_cors_allowed_and_rejected_origins(self):
+        """Verify CORS allows configured origins and rejects unknown origins."""
+        # 1. Allowed origin receives Access-Control-Allow-Origin header
+        allowed = config.ALLOWED_ORIGINS[0]
+        res_allowed = self.client.get("/api/health", headers={"Origin": allowed})
+        self.assertEqual(res_allowed.status_code, 200)
+        self.assertEqual(res_allowed.headers.get("access-control-allow-origin"), allowed)
+
+        # 2. Unknown origin is rejected (no access-control-allow-origin header)
+        res_unauthorized = self.client.get("/api/health", headers={"Origin": "https://malicious-attacker-domain.com"})
+        self.assertEqual(res_unauthorized.status_code, 200)
+        self.assertIsNone(res_unauthorized.headers.get("access-control-allow-origin"))
+
+    def test_render_ip_extraction(self):
+        """Verify IP extraction on Render cloud infrastructure (CF-Connecting-IP, True-Client-IP, XFF)."""
+        class MockClient:
+            def __init__(self, host):
+                self.host = host
+
+        class MockRequest:
+            def __init__(self, host, headers):
+                self.client = MockClient(host)
+                self.headers = headers
+
+        # Temporarily simulate config.IS_RENDER = True
+        orig_render = config.IS_RENDER
+        try:
+            config.IS_RENDER = True
+
+            # 1. Cloudflare connecting IP takes precedence on Render
+            req_cf = MockRequest("10.0.0.1", {
+                "CF-Connecting-IP": "198.51.100.77",
+                "X-Forwarded-For": "198.51.100.77, 10.0.0.1"
+            })
+            self.assertEqual(get_client_ip(req_cf), "198.51.100.77")
+
+            # 2. True-Client-IP takes precedence if CF-Connecting-IP absent
+            req_true = MockRequest("10.0.0.1", {
+                "True-Client-IP": "198.51.100.88",
+                "X-Forwarded-For": "198.51.100.88, 10.0.0.1"
+            })
+            self.assertEqual(get_client_ip(req_true), "198.51.100.88")
+
+            # 3. Standard Render X-Forwarded-For first entry
+            req_xff = MockRequest("10.0.0.1", {
+                "X-Forwarded-For": "203.0.113.66, 10.0.0.1"
+            })
+            self.assertEqual(get_client_ip(req_xff), "203.0.113.66")
+        finally:
+            config.IS_RENDER = orig_render
+
+    def test_database_init_preserves_services_and_admins(self):
+        """Verify init_db and seed_database do not delete or overwrite services or admins."""
+        services_before = db_manager.get_services()
+        self.assertGreaterEqual(len(services_before), 10)
+
+        admin_before = db_manager.get_admin_by_username_or_email(config.ADMIN_USERNAME)
+        self.assertIsNotNone(admin_before)
+
+        # Run init and seed again
+        db_manager.init_db()
+        seed_data.seed_database()
+
+        services_after = db_manager.get_services()
+        self.assertEqual(len(services_before), len(services_after))
+
+        admin_after = db_manager.get_admin_by_username_or_email(config.ADMIN_USERNAME)
+        self.assertEqual(admin_before["id"], admin_after["id"])
+        self.assertEqual(admin_before["password_hash"], admin_after["password_hash"])
+
 if __name__ == "__main__":
     unittest.main()

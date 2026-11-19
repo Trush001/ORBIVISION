@@ -1,0 +1,70 @@
+# ==============================================================================
+# ORBIVISION — Render Infrastructure Blueprint Specification
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. FastAPI Backend API — Render Web Service
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: orbivision-api
+    runtime: python
+    region: oregon
+    plan: starter # Starter plan required by Render for Persistent Disk mounts
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/health
+    disk:
+      name: orbivision-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_PATH
+        value: /app/data/orbivision.db
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_EMAIL
+        value: admin@orbivision.com
+      - key: ADMIN_PASSWORD
+        sync: false # Set your secure production admin password in the Render Dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false # Set frontend domain: e.g. https://orbivision.onrender.com,https://orbivision.com
+      - key: SMTP_ENABLED
+        value: "true"
+      - key: SMTP_HOST
+        value: smtp.resend.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        value: resend
+      - key: SMTP_PASSWORD
+        sync: false # Set Resend API key (re_...) securely in the Render Dashboard
+      - key: SMTP_FROM_EMAIL
+        value: no-reply@orbivision.com
+      - key: SMTP_FROM_NAME
+        value: ORBIVISION Agency
+      - key: FOUNDER_EMAILS
+        value: 826458om@gmail.com,trushalmparmar96@gmail.com
+
+  # ----------------------------------------------------------------------------
+  # 2. React 19 Frontend — Render Static Site
+  # ----------------------------------------------------------------------------
+  - type: static
+    name: orbivision-frontend
+    buildCommand: "cd frontend && npm install && npm run build"
+    staticPublishPath: "./frontend/dist"
+    routes:
+      - type: rewrite
+        source: "/*"
+        destination: "/index.html"
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false # Set to backend URL: e.g. https://orbivision-api.onrender.com

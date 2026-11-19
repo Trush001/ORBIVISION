@@ -27,12 +27,18 @@ def send_smtp_email(to_addresses: List[str], subject: str, text_body: str, html_
             part_html = MIMEText(html_body, "html", "utf-8")
             msg.attach(part_html)
 
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            server.sendmail(config.SMTP_FROM_EMAIL, to_addresses, msg.as_string())
+        use_ssl = getattr(config, "SMTP_USE_SSL", False) or config.SMTP_PORT == 465
+        if use_ssl:
+            with smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as server:
+                server.login(config.SMTP_USER, config.SMTP_PASSWORD)
+                server.sendmail(config.SMTP_FROM_EMAIL, to_addresses, msg.as_string())
+        else:
+            with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(config.SMTP_USER, config.SMTP_PASSWORD)
+                server.sendmail(config.SMTP_FROM_EMAIL, to_addresses, msg.as_string())
 
         logger.info(f"Successfully dispatched notification to {to_addresses}")
         return True

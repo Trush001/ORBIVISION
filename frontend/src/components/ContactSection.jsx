@@ -4,6 +4,7 @@ import {
   AlertCircle, Sparkles, ArrowUpRight, Clock, ShieldCheck
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { getApiUrl } from '../api/client';
 
 export default function ContactSection({ preselectedService }) {
   const [formData, setFormData] = useState({
@@ -76,7 +77,7 @@ export default function ContactSection({ preselectedService }) {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/inquiries', {
+      const response = await fetch(getApiUrl('/api/inquiries'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

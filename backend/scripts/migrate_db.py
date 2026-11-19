@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""
+ORBIVISION — SQLite Database Migration & Verification Utility for Render
+
+This script inspects, verifies, and exports the SQLite database for migration
+to the Render Persistent Disk (/app/data/orbivision.db).
+
+Usage:
+    python backend/scripts/migrate_db.py [--export-base64] [--verify-only]
+"""
+
+import sys
+import os
+import sqlite3
+import argparse
+import base64
+from pathlib import Path
+
+# Add backend directory to sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(BACKEND_DIR))
+
+import config
+
+def verify_database(db_path: Path):
+    """Verify table schema, record integrity, and presence of critical agency data."""
+    if not db_path.exists():
+        print(f"❌ Database not found at: {db_path}")
+        return False
+
+    print(f"🔍 Inspecting database: {db_path} ({db_path.stat().st_size} bytes)")
+    
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+
+    # 1. SQLite internal integrity check
+    cur.execute("PRAGMA integrity_check;")
+    integrity = cur.fetchone()[0]
+    if integrity != "ok":
+        print(f"❌ Integrity check failed: {integrity}")
+        conn.close()
+        return False
+    print("✅ PRAGMA integrity_check: OK")
+
+    # 2. Check Admin Users
+    try:
+        cur.execute("SELECT id, username, email, role, password_hash FROM admin_users;")
+        admins = cur.fetchall()
+        print(f"✅ Admin Users: {len(admins)} found")
+        for a in admins:
+            is_bcrypt = a[4].startswith(("$2b$", "$2a$"))
+            print(f"   • Admin ID #{a[0]}: '{a[1]}' ({a[2]}) | Role: {a[3]} | Bcrypt Hashed: {is_bcrypt}")
+    except Exception as e:
+        print(f"❌ Error checking admin_users: {e}")
+
+    # 3. Check Services
+    try:
+        cur.execute("SELECT count(*) FROM services WHERE is_active = 1;")
+        service_count = cur.fetchone()[0]
+        print(f"✅ Active Agency Services: {service_count} capabilities loaded")
+    except Exception as e:
+        print(f"❌ Error checking services: {e}")
+
+    # 4. Check Inquiries
+    try:
+        cur.execute("SELECT count(*), max(id) FROM inquiries;")
+        inq_row = cur.fetchone()
+        print(f"✅ Inquiries: {inq_row[0]} leads stored (Latest ID: {inq_row[1]})")
+    except Exception as e:
+        print(f"❌ Error checking inquiries: {e}")
+
+    conn.close()
+    return True
+
+def export_base64(db_path: Path):
+    """Export the database as a single-line Base64 string for direct pasting into Render Shell."""
+    if not db_path.exists():
+        print(f"❌ Error: {db_path} does not exist.")
+        return
+
+    with open(db_path, "rb") as f:
+        data = f.read()
+    
+    encoded = base64.b64encode(data).decode("ascii")
+    
+    print("\n" + "=" * 70)
+    print("🚀 RENDER PERSISTENT DISK MIGRATION INSTRUCTIONS (ZERO DOWNTIME)")
+    print("=" * 70)
+    print("Method 1: Direct Transfer via Render Web Dashboard Shell")
+    print("1. Open your Render Web Service dashboard (e.g. 'orbivision-api').")
+    print("2. Click the 'Shell' tab in the left navigation.")
+    print("3. Ensure the mount directory exists:")
+    print("   mkdir -p /app/data")
+    print("4. Run the following command in the Render Shell:")
+    print("   cat << 'EOF' | base64 -d > /app/data/orbivision.db")
+    print(encoded)
+    print("EOF")
+    print("\n5. Verify the restored database in the Render Shell:")
+    print("   python -c \"import sqlite3; conn = sqlite3.connect('/app/data/orbivision.db'); print(conn.execute('PRAGMA integrity_check;').fetchall()); print('Services:', conn.execute('SELECT count(*) FROM services').fetchone()[0])\"")
+    print("=" * 70)
+
+def main():
+    parser = argparse.ArgumentParser(description="ORBIVISION Database Migration Tool for Render")
+    parser.add_argument("--db", type=str, default=config.DATABASE_PATH, help="Path to SQLite database")
+    parser.add_argument("--export-base64", action="store_true", help="Generate Base64 migration payload")
+    parser.add_argument("--verify-only", action="store_true", help="Run integrity verification only")
+    
+    args = parser.parse_args()
+    db_path = Path(args.db)
+
+    success = verify_database(db_path)
+    if not success:
+        sys.exit(1)
+
+    if args.export_base64:
+        export_base64(db_path)
+    else:
+        print("\n💡 Run with --export-base64 to generate the one-click Render Shell migration command.")
+
+if __name__ == "__main__":
+    main()

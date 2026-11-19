@@ -38,13 +38,19 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
 # Database Path Resolution:
-# Supports absolute paths (e.g. Docker volumes) and resolves relative paths
-# strictly against BASE_DIR to ensure deterministic SQLite database binding.
+# Supports absolute paths (e.g. Render persistent disk /app/data/orbivision.db)
+# and resolves relative paths strictly against BASE_DIR.
 raw_db_path = os.getenv("DATABASE_PATH", "orbivision.db")
 if os.path.isabs(raw_db_path):
     DATABASE_PATH = raw_db_path
 else:
     DATABASE_PATH = str((BASE_DIR / raw_db_path).resolve())
+
+# Guarantee database parent directory exists before any connection attempt
+try:
+    Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 # CORS
 raw_origins = os.getenv(
@@ -53,10 +59,11 @@ raw_origins = os.getenv(
 )
 ALLOWED_ORIGINS = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
-# Notifications & SMTP
+# Notifications & SMTP (Compatible with Resend, Gmail, SendGrid, etc.)
 SMTP_ENABLED = os.getenv("SMTP_ENABLED", "false").lower() in ("true", "1", "yes")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.resend.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() in ("true", "1", "yes") or SMTP_PORT == 465
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "no-reply@orbivision.com")
@@ -65,6 +72,10 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "ORBIVISION Agency")
 # Founder Notification Recipients
 raw_founders = os.getenv("FOUNDER_EMAILS", "826458om@gmail.com,trushalmparmar96@gmail.com")
 FOUNDER_EMAILS = [email.strip() for email in raw_founders.split(",") if email.strip()]
+
+# Render Infrastructure Detection
+# Render automatically injects RENDER=true and RENDER_SERVICE_ID in web service containers.
+IS_RENDER = os.getenv("RENDER", "false").lower() in ("true", "1", "yes") or bool(os.getenv("RENDER_SERVICE_ID"))
 
 # Trusted Reverse Proxies (comma-separated list of IPs, CIDR blocks, or hostnames)
 # Forwarded client IP headers (X-Forwarded-For, X-Real-IP) are ONLY trusted from these sources.

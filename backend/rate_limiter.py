@@ -84,23 +84,50 @@ def is_trusted_proxy(peer_ip: str) -> bool:
 
 def get_client_ip(request: Request) -> str:
     """
-    Extract client IP securely.
+    Extract client IP securely across both Render cloud infrastructure and Docker/VPS self-hosted environments.
     
-    SECURITY MEASURE:
-    Forwarded client IP headers (X-Forwarded-For, X-Real-IP) are ONLY trusted if
-    the immediate connection peer (request.client.host) is a verified trusted reverse
-    proxy (such as internal Nginx or container bridge gateway).
-    
-    Public clients connecting directly cannot bypass rate limits by spoofing
-    arbitrary X-Forwarded-For headers.
+    SECURITY MEASURES:
+    1. Render Deployment (config.IS_RENDER is True):
+       Render Web Services operate behind Render's edge reverse proxy and Cloudflare ingress.
+       Public clients cannot connect directly to the service container port; all traffic passes
+       through Render's edge. Cloudflare sets and sanitizes 'CF-Connecting-IP' and 'True-Client-IP'.
+       We extract the validated client IP from 'CF-Connecting-IP', 'True-Client-IP', or the first
+       entry of 'X-Forwarded-For'.
+       
+    2. Self-Hosted / Docker / Local Deployments (config.IS_RENDER is False):
+       Forwarded headers (X-Forwarded-For, X-Real-IP) are ONLY trusted if the immediate network
+       connection peer (request.client.host) is an explicitly verified trusted reverse proxy
+       (in TRUSTED_PROXIES). Direct public clients attempting to spoof X-Forwarded-For are thwarted
+       because their forwarded headers are ignored and their raw socket IP is used.
     """
     peer_ip = request.client.host if request.client else "unknown"
 
-    # If the request did not originate from a trusted reverse proxy, use the direct peer IP
+    # Case 1: Operating in Render Cloud Environment
+    if config.IS_RENDER:
+        cf_ip = request.headers.get("CF-Connecting-IP")
+        if cf_ip and cf_ip.strip():
+            return cf_ip.strip()
+
+        true_ip = request.headers.get("True-Client-IP")
+        if true_ip and true_ip.strip():
+            return true_ip.strip()
+
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded and forwarded.strip():
+            return forwarded.split(",")[0].strip()
+
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip and real_ip.strip():
+            return real_ip.strip()
+
+        return peer_ip
+
+    # Case 2: Self-hosted / Docker / Local environments
+    # Reject forwarded headers if immediate connection peer is not an authorized trusted proxy
     if not is_trusted_proxy(peer_ip):
         return peer_ip
 
-    # Peer is trusted: inspect forwarded headers
+    # Peer is a verified trusted proxy: extract originating client IP
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         client_candidate = forwarded.split(",")[0].strip()
@@ -108,7 +135,7 @@ def get_client_ip(request: Request) -> str:
             return client_candidate
 
     real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
+    if real_ip and real_ip.strip():
         return real_ip.strip()
 
     return peer_ip

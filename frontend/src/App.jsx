@@ -12,6 +12,8 @@ import MouseSpotlight from './components/MouseSpotlight';
 import { DEFAULT_SERVICES } from './data/constants';
 
 // Lazy-load the heavy administrative dashboard modal
+import { getApiUrl } from './api/client';
+
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 
 export default function App() {
@@ -22,7 +24,7 @@ export default function App() {
   // Hydrate Services from backend API asynchronously if available
   useEffect(() => {
     let isMounted = true;
-    fetch('/api/services')
+    fetch(getApiUrl('/api/services'))
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (isMounted && Array.isArray(data) && data.length > 0) {

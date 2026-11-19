@@ -4,6 +4,7 @@ import {
   Mail, Phone, MessageSquare, AlertCircle, 
   Search, ShieldCheck
 } from 'lucide-react';
+import { getApiUrl } from '../api/client';
 
 export default function AdminDashboard({ isOpen, onClose }) {
   const [token, setToken] = useState(() => localStorage.getItem('orbivision_admin_token') || '');
@@ -33,7 +34,7 @@ export default function AdminDashboard({ isOpen, onClose }) {
     setLoginLoading(true);
 
     try {
-      const res = await fetch('/api/admin/login', {
+      const res = await fetch(getApiUrl('/api/admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginCreds),
@@ -66,7 +67,7 @@ export default function AdminDashboard({ isOpen, onClose }) {
   const fetchStats = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('/api/admin/stats', {
+      const res = await fetch(getApiUrl('/api/admin/stats'), {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -92,7 +93,7 @@ export default function AdminDashboard({ isOpen, onClose }) {
       if (searchQuery.trim()) {
         params.append('search', searchQuery.trim());
       }
-      const url = `/api/inquiries?${params.toString()}`;
+      const url = getApiUrl(`/api/inquiries?${params.toString()}`);
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -130,7 +131,7 @@ export default function AdminDashboard({ isOpen, onClose }) {
       if (newStatus !== undefined) payload.status = newStatus;
       if (notes !== undefined) payload.notes = notes;
 
-      const res = await fetch(`/api/inquiries/${inquiryId}`, {
+      const res = await fetch(getApiUrl(`/api/inquiries/${inquiryId}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -157,7 +158,7 @@ export default function AdminDashboard({ isOpen, onClose }) {
   const handleDeleteInquiry = async (inquiryId) => {
     if (!window.confirm('Are you sure you want to delete this inquiry record? This action cannot be undone.')) return;
     try {
-      const res = await fetch(`/api/inquiries/${inquiryId}`, {
+      const res = await fetch(getApiUrl(`/api/inquiries/${inquiryId}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
