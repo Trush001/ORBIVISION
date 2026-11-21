@@ -9,10 +9,11 @@ services:
   - type: web
     name: orbivision-api
     runtime: python
+    rootDir: backend
     region: oregon
     plan: starter # Starter plan required by Render for Persistent Disk mounts
-    buildCommand: "cd backend && pip install -r requirements.txt"
-    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /api/health
     disk:
       name: orbivision-data
@@ -59,8 +60,9 @@ services:
   # ----------------------------------------------------------------------------
   - type: static
     name: orbivision-frontend
-    buildCommand: "cd frontend && npm install && npm run build"
-    staticPublishPath: "./frontend/dist"
+    rootDir: frontend
+    buildCommand: "npm ci && npm run build"
+    staticPublishPath: "dist"
     routes:
       - type: rewrite
         source: "/*"

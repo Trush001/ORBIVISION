@@ -82,6 +82,16 @@ def is_trusted_proxy(peer_ip: str) -> bool:
         return peer_ip.lower() in [t.lower() for t in config.TRUSTED_PROXIES]
     return False
 
+def is_valid_ip(ip_str: str) -> bool:
+    """Validate whether a candidate string is a valid IPv4 or IPv6 address."""
+    if not ip_str:
+        return False
+    try:
+        ipaddress.ip_address(ip_str.strip())
+        return True
+    except ValueError:
+        return False
+
 def get_client_ip(request: Request) -> str:
     """
     Extract client IP securely across both Render cloud infrastructure and Docker/VPS self-hosted environments.
@@ -91,8 +101,8 @@ def get_client_ip(request: Request) -> str:
        Render Web Services operate behind Render's edge reverse proxy and Cloudflare ingress.
        Public clients cannot connect directly to the service container port; all traffic passes
        through Render's edge. Cloudflare sets and sanitizes 'CF-Connecting-IP' and 'True-Client-IP'.
-       We extract the validated client IP from 'CF-Connecting-IP', 'True-Client-IP', or the first
-       entry of 'X-Forwarded-For'.
+       We extract and strictly validate the client IP format from 'CF-Connecting-IP', 'True-Client-IP',
+       or the leftmost entry of 'X-Forwarded-For'.
        
     2. Self-Hosted / Docker / Local Deployments (config.IS_RENDER is False):
        Forwarded headers (X-Forwarded-For, X-Real-IP) are ONLY trusted if the immediate network
@@ -105,20 +115,28 @@ def get_client_ip(request: Request) -> str:
     # Case 1: Operating in Render Cloud Environment
     if config.IS_RENDER:
         cf_ip = request.headers.get("CF-Connecting-IP")
-        if cf_ip and cf_ip.strip():
-            return cf_ip.strip()
+        if cf_ip:
+            candidate = cf_ip.split(",")[0].strip()
+            if is_valid_ip(candidate):
+                return candidate
 
         true_ip = request.headers.get("True-Client-IP")
-        if true_ip and true_ip.strip():
-            return true_ip.strip()
+        if true_ip:
+            candidate = true_ip.split(",")[0].strip()
+            if is_valid_ip(candidate):
+                return candidate
 
         forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded and forwarded.strip():
-            return forwarded.split(",")[0].strip()
+        if forwarded:
+            candidate = forwarded.split(",")[0].strip()
+            if is_valid_ip(candidate):
+                return candidate
 
         real_ip = request.headers.get("X-Real-IP")
-        if real_ip and real_ip.strip():
-            return real_ip.strip()
+        if real_ip:
+            candidate = real_ip.split(",")[0].strip()
+            if is_valid_ip(candidate):
+                return candidate
 
         return peer_ip
 
@@ -131,12 +149,14 @@ def get_client_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         client_candidate = forwarded.split(",")[0].strip()
-        if client_candidate:
+        if is_valid_ip(client_candidate):
             return client_candidate
 
     real_ip = request.headers.get("X-Real-IP")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
+    if real_ip:
+        client_candidate = real_ip.strip()
+        if is_valid_ip(client_candidate):
+            return client_candidate
 
     return peer_ip
 

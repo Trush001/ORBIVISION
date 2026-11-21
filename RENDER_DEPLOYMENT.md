@@ -52,9 +52,9 @@ Create a **New Web Service** connected to your repository, or use the automated 
 | **Language / Runtime** | `Python 3` | Python 3.11+ |
 | **Region** | `Oregon (US West)` | Choose region closest to your primary audience |
 | **Branch** | `master` (or `main`) | Deployment branch |
-| **Root Directory** | Leave blank | Root of repository |
-| **Build Command** | `cd backend && pip install -r requirements.txt` | Installs pure-Python dependencies |
-| **Start Command** | `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT` | Uses Render's dynamic `$PORT` |
+| **Root Directory** | `backend` | Isolates backend service directory |
+| **Build Command** | `pip install -r requirements.txt` | Installs pure-Python dependencies |
+| **Start Command** | `uvicorn main:app --host 0.0.0.0 --port $PORT` | Uses Render's dynamic `$PORT` |
 | **Plan** | **Starter** ($7/mo) | **Required:** Persistent Disks require a paid plan |
 | **Health Check Path**| `/api/health` | Automated uptime monitoring |
 
@@ -84,9 +84,9 @@ Create a **New Static Site** connected to your repository:
 | :--- | :--- | :--- |
 | **Name** | `orbivision-frontend` | Static site identifier |
 | **Branch** | `master` (or `main`) | Deployment branch |
-| **Root Directory** | Leave blank | Root of repository |
-| **Build Command** | `cd frontend && npm install && npm run build` | Builds optimized client bundle |
-| **Publish Directory** | `frontend/dist` | Output build artifacts directory |
+| **Root Directory** | `frontend` | Isolates frontend client directory |
+| **Build Command** | `npm ci && npm run build` | Builds optimized client bundle from package-lock.json |
+| **Publish Directory** | `dist` | Output build artifacts directory (relative to root dir) |
 
 ### Single Page Application (SPA) Routing Rule
 
